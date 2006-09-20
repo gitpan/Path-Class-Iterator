@@ -1,0 +1,6 @@
+Revision history for Perl extension Path::Class::Iterator.
+
+0.01  Tue Sep 19 22:45:52 2006
+	- original version; created by h2xs 1.23 with options
+		-XA -n Path::Class::Iterator
+

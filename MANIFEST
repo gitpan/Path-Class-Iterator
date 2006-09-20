@@ -1,0 +1,8 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+t/Path-Class-Iterator.t
+t/01walk.t
+lib/Path/Class/Iterator.pm
+META.yml                                 Module meta-data (added by MakeMaker)
