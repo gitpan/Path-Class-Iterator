@@ -7,30 +7,36 @@ use Path::Class::Iterator;
 
 my $root = '.';
 
+sub debug
+{
+    diag(@_) if $ENV{PERL_TEST};
+}
+
 ok(my $walker = Path::Class::Iterator->new(root => $root), "new object");
 
 my $count = 0;
-while (my $f = $walker->next)
+until ($walker->done)
 {
+    my $f = $walker->next;
+
     $count++;
     if (-l $f)
     {
-        #diag "$f is a symlink";
+        debug "$f is a symlink";
     }
     elsif (-d $f)
     {
-        #diag "$f is a dir";
+        debug "$f is a dir";
     }
     elsif (-f $f)
     {
-        #diag "$f is a file";
+        debug "$f is a file";
     }
     else
     {
-        #diag "no idea what $f is";
+        debug "no idea what $f is";
     }
 
-    last if $walker->done;
 }
 
 ok($count > 1, "found some files");

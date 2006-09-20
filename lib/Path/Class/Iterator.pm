@@ -4,11 +4,30 @@ use strict;
 use warnings;
 use Path::Class;
 use Carp;
+use Data::Dump qw/dump /;
 use Iterator;
 
 use base qw/ Class::Accessor::Fast /;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
+our $Err;
+
+my @acc = qw/
+  root
+  start
+  follow_symlinks
+  follow_hidden
+  iterator
+  error_handler
+  error
+  show_warnings
+  breadth_first
+  interesting
+  push_queue
+  pop_queue
+  queue
+
+  /;
 
 sub _listing
 {
@@ -17,9 +36,18 @@ sub _listing
 
     my $d = $path->open;
 
-    Iterator::X::IO_Error(message => qq{Cannot read "$path": $!},
-                          error   => $!)
-      unless $d;
+    unless (defined $d)
+    {
+        $self->error("cannot open $path: $!");
+        if ($self->error_handler->($self, $path, $!))
+        {
+            return Iterator->new(sub { Iterator::is_done(); return undef });
+        }
+        else
+        {
+            croak "can't open $path: $!";
+        }
+    }
 
     return Iterator->new(
         sub {
@@ -28,12 +56,7 @@ sub _listing
             my $next;
             while (1)
             {
-                eval { $next = $d->read };
-
-                if ($@)
-                {
-                    croak "error reading $next: $! ($@)";
-                }
+                $next = $d->read;
 
                 if (!defined $next)
                 {
@@ -47,8 +70,9 @@ sub _listing
             }
 
             # Return this item
-            return -d dir($path, $next)
-              ? dir($path, $next)
+            my $f = dir($path, $next);
+            return -d $f
+              ? $f
               : file($path, $next);
         }
     );
@@ -74,15 +98,46 @@ sub new
     my %opts  = @_;
     @$self{keys %opts} = values %opts;
     bless($self, $class);
-    $self->mk_accessors(
-                       qw/ root start follow_symlinks follow_hidden iterator /);
+    $self->mk_accessors(@acc);
 
     $self->start(time());
+
     $self->root or croak "root param required";
-    $self->root( dir($self->root) );
+    $self->root(dir($self->root));
+    unless ($self->root->open)
+    {
+        $Err = $self->root . " cannot be opened: $!";
+        return undef;
+    }
+
+    $self->error_handler(
+        sub {
+            my ($self, $path, $msg) = @_;
+            warn "skipping $path: $msg" if $self->show_warnings;
+            return 1;
+        }
+      )
+      unless $self->error_handler;
+
+    $self->breadth_first
+      ? $self->pop_queue(
+        sub {
+            my $self = shift;
+            return pop(@{$self->{queue}});
+        }
+      )
+      : $self->pop_queue(
+        sub {
+            my $self = shift;
+            return shift(@{$self->{queue}});
+        }
+      );
+
+    $self->push_queue(sub { my $self = shift; push(@{$self->{queue}}, @_); });
+
     my $files = $self->_listing($self->root);
 
-    my @dir_queue;
+    $self->queue([]);
     $self->iterator(
         Iterator->new(
             sub {
@@ -92,35 +147,42 @@ sub new
                 while ($files->is_exhausted)
                 {
 
-                    # Nothing else on the queue?  Then we're done.
-                    if (@dir_queue == 0)
+                    # Nothing else on the queue? Then we're done .
+                    if (!$self->queue->[0])
                     {
                         undef $files;    # allow garbage collection
                         Iterator::is_done();
                     }
 
                     # Create an iterator to return the files in that directory
-                    $files = $self->_listing(shift @dir_queue);
+                    #carp dump $self->queue;
+
+                    $files = $self->_listing($self->pop_queue->($self));
                 }
 
                 # Get next file in current directory
                 my $next = $files->value;
 
-                # If this is a directory (and not a symlink), remember it for later recursion
-
                 if (!$self->follow_symlinks)
                 {
-                    while (-l $next && $files->is_not_exhausted)
+                    while (-l $next && $files->isnt_exhausted)
                     {
                         $next = $files->value;
                     }
                 }
 
+                # remember dirs for recursing later
                 if (-d $next)
                 {
-
-                    # depth vs breadth is unshift vs push ??
-                    unshift(@dir_queue, $next);
+                    $self->push_queue->($self, $next);
+                    if ($self->interesting)
+                    {
+                        my $new = $self->interesting->($self, $self->queue);
+                        croak
+                          "return value from interesting() must be an ARRAY ref"
+                          unless ref $new eq 'ARRAY';
+                        $self->queue($new);
+                    }
                 }
 
                 return $next;
@@ -149,12 +211,11 @@ Path::Class::Iterator - walk a directory structure
 
   my $walker = Path::Class::Iterator->new(root => $dir);
 
-  while (my $f = $walker->next)
+  until ($walker->done)
   {
+    my $f = $walker->next;
     # do something with $f
     # $f is a Path::Class::Dir or Path::Class::File object
-
-    last if $walker->done;
   }
 
 =head1 DESCRIPTION
@@ -165,14 +226,15 @@ with the magic of L<Path::Class>.
 
 It is similar in idea to L<Iterator::IO> and L<IO::Dir::Recursive> 
 but uses L<Path::Class> objects instead of L<IO::All> objects. 
-It is also similar to the Path::Class
+It is also similar to the L<Path::Class::Dir>
 next() method, but automatically acts recursively. In fact, it is similar
 to many recursive L<File::Find>-type modules, but not quite exactly like them.
 If it were exactly like them, I wouldn't have written it. I think.
 
 I cribbed much of the Iterator logic directly from L<Iterator::IO> and married
-it with Path::Class. I'd been wanting to try something like Iterator::IO since
-hearing MJD's HOP talk at OSCON 2006.
+it with Path::Class. This module is inspired by hearing Mark Jason Dominus's
+I<Higher Order Perl> talk at OSCON 2006. L<Iterator::IO> is also inspired by MJD's
+iterator ideas, but takes it a slightly different direction.
 
 =head1 METHODS
 
@@ -196,6 +258,36 @@ Set this to true to include these hidden items in your iterations.
 
 Symlinks (or whatever returns true with the built-in B<-l> flag on your system)
 are skipped by default. Set this to true to follow symlinks.
+
+=item error_handler
+
+A sub ref for handling L<IO::Dir> open() errors. Example would be if you lack
+permission to a directory. The default handler is to simply skip that directory.
+
+The sub ref should expect 3 arguments: the iterator object, the L<Path::Class>
+object, and the error message (usually just $!).
+
+The sub ref MUST return a true value or else the iterator will croak.
+
+=item show_warnings
+
+If set to true (1), the default error handler will print a message on stderr each
+time it is called.
+
+=item breadth_first
+
+Iterate over all the contents of a dir before descending into any subdirectories.
+The default is 0 (depth first), which is similar to L<File::Find>.
+B<NOTE:> This feature will likely not do what you expect if you also use the 
+interesting() feature.
+
+=item interesting
+
+A sub ref for manipulating the queue. It should expect 2 arguments: the iterator object
+and an array ref of L<Path::Class::Dir> objects. It should return an array ref of
+L<Path::Class::Dir> objects.
+
+This feature implements when MJD calls I<heuristically guided search>.
 
 =back
 
@@ -228,10 +320,45 @@ Get/set the param set in new().
 
 Get/set the param set in new().
 
+=head2 error_handler
 
-=head1 TODO
+Get/set the subref used for handling errors.
 
-Breadth vs. depth option to new() for how to walk each directory.
+=head2 error
+
+Get the most recent object error message.
+
+=head2 show_warnings
+
+Get/set flag for default error handler.
+
+=head2 breadth_first
+
+Returns value set in new().
+
+=head2 interesting
+
+Get/set subref for manipulating the queue().
+
+=head2 push_queue->( I<iterator_object>, I<P::C_object> )
+
+Add a I<Path::Class> object to the internal queue. This method
+is used internally.
+
+=head2 pop_queue->( I<iterator_object> )
+
+Remove a I<Path::Class> object from the queue. This method is used
+internally. Returns the next I<Path::Class> object for iteration,
+based on I<breadth_first> setting.
+
+=head2 queue
+
+Get/set current queue. Value must be an ARRAY ref.
+
+
+=head1 EXAMPLES
+
+See the t/ directory for examples of error_handler() and interesting().
 
 =head1 SEE ALSO
 
