@@ -4,13 +4,18 @@ use strict;
 use warnings;
 use Path::Class;
 use Carp;
-use Data::Dump qw/dump /;
 use Iterator;
 
 use base qw/ Class::Accessor::Fast /;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 our $Err;
+our $debug = $ENV{PERL_TEST} || $ENV{PERL_DEBUG} || 0;
+
+if ($debug)
+{
+    require Data::Dump;
+}
 
 my @acc = qw/
   root
@@ -26,6 +31,7 @@ my @acc = qw/
   push_queue
   pop_queue
   queue
+  depth
 
   /;
 
@@ -70,10 +76,24 @@ sub _listing
             }
 
             # Return this item
-            my $f = dir($path, $next);
-            return -d $f
-              ? $f
-              : file($path, $next);
+            my $f = Path::Class::Iterator::Dir->new($path, $next);
+            if (-d $f)
+            {
+                $self->{_depth} =
+                  (scalar($f->cleanup->dir_list) - $self->{_root_depth});
+
+            }
+            else
+            {
+                $f = Path::Class::Iterator::File->new($path, $next);
+                my $p = $f->parent->cleanup;
+                $self->{_depth} =
+                  (scalar($p->dir_list) - $self->{_root_depth} + 1);
+
+            }
+
+            return $f;
+
         }
     );
 }
@@ -81,7 +101,10 @@ sub _listing
 sub next
 {
     my $self = shift;
-    return $self->iterator->value;
+    my $depth = $self->cur_depth;
+    my $n = $self->iterator->value;
+    $n->depth($depth);
+    return $n;
 }
 
 sub done
@@ -89,6 +112,8 @@ sub done
     my $self = shift;
     return $self->iterator->is_exhausted;
 }
+
+sub cur_depth { return $_[0]->{_depth} }
 
 sub new
 {
@@ -101,6 +126,7 @@ sub new
     $self->mk_accessors(@acc);
 
     $self->start(time());
+    $self->{_depth} = 0;    # internal tracking
 
     $self->root or croak "root param required";
     $self->root(dir($self->root));
@@ -109,6 +135,8 @@ sub new
         $Err = $self->root . " cannot be opened: $!";
         return undef;
     }
+
+    $self->{_root_depth} = scalar($self->root->dir_list);
 
     $self->error_handler(
         sub {
@@ -155,7 +183,7 @@ sub new
                     }
 
                     # Create an iterator to return the files in that directory
-                    #carp dump $self->queue;
+                    carp Data::Dump::pp($self->queue) if $debug;
 
                     $files = $self->_listing($self->pop_queue->($self));
                 }
@@ -172,16 +200,25 @@ sub new
                 }
 
                 # remember dirs for recursing later
+                # unless they exceed depth
+                carp join("\n", '=' x 50, "$next", $self->cur_depth) if $debug;
                 if (-d $next)
                 {
-                    $self->push_queue->($self, $next);
-                    if ($self->interesting)
+
+            # BUG?? does checking cur_depth() here invoke our bug?
+
+                    unless (   $self->depth
+                            && $self->cur_depth > $self->depth)
                     {
-                        my $new = $self->interesting->($self, $self->queue);
-                        croak
-                          "return value from interesting() must be an ARRAY ref"
-                          unless ref $new eq 'ARRAY';
-                        $self->queue($new);
+                        $self->push_queue->($self, $next);
+                        if ($self->interesting)
+                        {
+                            my $new = $self->interesting->($self, $self->queue);
+                            croak
+                              "return value from interesting() must be an ARRAY ref"
+                              unless ref $new eq 'ARRAY';
+                            $self->queue($new);
+                        }
                     }
                 }
 
@@ -194,6 +231,20 @@ sub new
 }
 
 1;
+
+
+package Path::Class::Iterator::File;
+use base qw( Path::Class::File Class::Accessor::Fast );
+__PACKAGE__->mk_accessors('depth');
+
+1;
+
+package Path::Class::Iterator::Dir;
+use base qw( Path::Class::Dir Class::Accessor::Fast );
+__PACKAGE__->mk_accessors('depth');
+
+1;
+
 
 __END__
 
@@ -209,11 +260,19 @@ Path::Class::Iterator - walk a directory structure
   
   my $dir = shift @ARGV || '';
 
-  my $walker = Path::Class::Iterator->new(root => $dir);
+  my $iterator = Path::Class::Iterator->new(
+                        root            => $dir,
+                        depth           => 2
+                        interesting     => sub { return [sort {"$a" cmp "$b"} @{$_[1]}] }
+                        follow_symlinks => 1,
+                        follow_hidden   => 0,
+                        breadth_first   => 1,
+                        show_warnings   => 1
+                        );
 
-  until ($walker->done)
+  until ($iterator->done)
   {
-    my $f = $walker->next;
+    my $f = $iterator->next;
     # do something with $f
     # $f is a Path::Class::Dir or Path::Class::File object
   }
@@ -287,13 +346,29 @@ A sub ref for manipulating the queue. It should expect 2 arguments: the iterator
 and an array ref of L<Path::Class::Dir> objects. It should return an array ref of
 L<Path::Class::Dir> objects.
 
-This feature implements when MJD calls I<heuristically guided search>.
+This feature implements what MJD calls I<heuristically guided search>.
+
+=item depth
+
+Do not recurse past I<n> levels. You could also implement the depth feature with 
+interesting, but this is easier. Default is undef (exhaustive recursion).
+
+B<NOTE:> I<n> is calculated relative to I<root>, not the absolute depth of the item.
+A depth of B<1> means do not recurse deeper than I<root> itself, while a depth of B<2>
+means "descend one level below I<root>".
 
 =back
 
 =head2 next
 
-Returns the next file or directory from the P::C::I object.
+Returns the next file or directory from the P::C::I object. The return value will
+be either a Path::Class::Iterator::File object or Path::Class:Iterator::Dir object.
+Both object types are subclasses of their respective Path::Class types and inherit
+all their methods and features, plus a B<depth()> method for getting the depth of the
+object relative to the I<root>. 
+
+B<NOTE:> The depth() method returns the depth of the P::C::I::Dir or P::C::I::File object.
+See cur_depth() to get the current depth of the P::C::I object.
 
 =head2 start
 
@@ -340,6 +415,13 @@ Returns value set in new().
 
 Get/set subref for manipulating the queue().
 
+=head2 depth
+
+Get/set the Iterator recursion depth. Default is undef (infinite).
+
+B<NOTE:> This is not the same depth() method as on the return value of next().
+This depth() method affects the recursion level for the Iterator object itself.
+
 =head2 push_queue->( I<iterator_object>, I<P::C_object> )
 
 Add a I<Path::Class> object to the internal queue. This method
@@ -355,6 +437,26 @@ based on I<breadth_first> setting.
 
 Get/set current queue. Value must be an ARRAY ref.
 
+=head2 cur_depth
+
+Returns the current Iterator depth relative to I<root>.
+
+B<CAVEAT:> Because of the way the iterator logic works internally, the value of
+cur_depth() may change after you call next(), so the order you call next() and
+cur_depth() may create an off-by-1 error in your code if you're not careful. 
+That's because cur_depth() returns the current depth of the Iterator, 
+not the next() value.
+
+ my $depth = $iterator->cur_depth;
+ my $f = $iterator->next;
+ # $depth == $f->depth()
+ 
+ my $f = $iterator->next;
+ my $depth = $iterator->cur_depth;
+ # $depth might not == $f->depth()
+ 
+It's likely you want to use the depth() method on the return value of next() anyway.
+See the next() method.
 
 =head1 EXAMPLES
 
@@ -368,6 +470,9 @@ L<http://perl.plover.com/hop/>
 
 L<Iterator>, L<Iterator::IO>, L<Path::Class>, L<IO::Dir::Recursive>, L<IO::Dir>
 
+=head1 BUGS
+
+The cur_depth() caveat is a probably a bug, but since we have a depth() method
 
 =head1 AUTHOR
 
