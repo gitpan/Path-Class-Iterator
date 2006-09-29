@@ -1,7 +1,4 @@
-use Test::More tests => 2;
-
-use strict;
-use warnings;
+use Test::More;
 
 use Path::Class::Iterator;
 
@@ -9,7 +6,17 @@ require "t/help.pl";
 
 my $no_links = setup();
 
-my $root = 'test';
+if ($no_links)
+{
+    plan tests => 11;
+}
+else
+{
+    plan tests => 12;
+}
+
+my $root    = 'test';
+my $skipped = 0;
 
 sub debug
 {
@@ -24,18 +31,13 @@ ok(
 
             debug $self->error;
             debug "we'll skip $path";
+            $skipped++;
 
             return 1;
         },
         follow_symlinks => 1,
-        breadth_first   => 1,
-        interesting     => sub {
-            my ($self, $stack) = @_;
-
-            return [sort { $b cmp $a } @$stack];
-
-        },
-    ),
+        breadth_first   => 1
+                                           ),
     "new object"
   );
 
@@ -43,27 +45,21 @@ my $count = 0;
 until ($walker->done)
 {
     my $f = $walker->next;
+    my $d = $f->depth;
+    ok($d eq $f->depth, "depth");
+
+    debug("$f  -> $d");
 
     $count++;
-    if (-l $f)
-    {
-        debug "$f is a symlink";
-    }
-    elsif (-d $f)
-    {
-        debug "$f is a dir";
-    }
-    elsif (-f $f)
-    {
-        debug "$f is a file";
-    }
-    else
-    {
-        debug "no idea what $f is";
-    }
 
 }
 
 ok($count > 1, "found some files");
+debug "skipped $skipped files";
+unless ($no_links)
+{
+    cmp_ok($skipped, '==', 2, "skipped bad links");
+}
 
 cleanup();
+

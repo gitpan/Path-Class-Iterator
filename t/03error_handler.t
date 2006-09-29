@@ -2,23 +2,9 @@ use Test::More;
 
 use Path::Class::Iterator;
 
-my %links = (
-             'cannot_chdir' => 'test/link_to_cannot_chdir',
-             'foo'          => 'test/bar',
-             '/no/such/dir' => 'test/no_such_dir'
-            );
+require "t/help.pl";
 
-mkdir('test/cannot_chdir', 0000);
-
-# catch fatal errs for systems that don't have symlinks
-my $no_links = 0;
-for my $real (keys %links)
-{
-    unless (eval { symlink $real, $links{$real}; 1; })
-    {
-        $no_links = 1;
-    }
-}
+my $no_links = setup();
 
 if ($no_links)
 {
@@ -86,3 +72,5 @@ unless ($no_links)
 {
     cmp_ok($skipped, '==', 2, "skipped bad links");
 }
+
+cleanup();

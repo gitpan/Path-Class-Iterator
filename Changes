@@ -10,3 +10,6 @@ Revision history for Perl extension Path::Class::Iterator.
       added 'depth' feature
       added P::C::I::Dir and P::C::I::File classes for next() values
       POD cleanup
+
+0.05  * include t/05depth.t (which failed to make MANIFEST for 0.04)
+      * cleaned up tests to be more portable
