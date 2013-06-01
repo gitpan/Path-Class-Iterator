@@ -13,3 +13,6 @@ Revision history for Perl extension Path::Class::Iterator.
 
 0.05  * include t/05depth.t (which failed to make MANIFEST for 0.04)
       * cleaned up tests to be more portable
+
+0.06  31 May 2013
+      * fix number of tests in t/05

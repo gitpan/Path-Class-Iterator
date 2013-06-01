@@ -1,5 +1,7 @@
-use Test::More;
+#!/usr/bin/env perl
 
+use strict;
+use Test::More;
 use Path::Class::Iterator;
 
 require "t/help.pl";
@@ -8,11 +10,11 @@ my $no_links = setup();
 
 if ($no_links)
 {
-    plan tests => 11;
+    plan tests => 13;
 }
 else
 {
-    plan tests => 12;
+    plan tests => 14;
 }
 
 my $root    = 'test';
