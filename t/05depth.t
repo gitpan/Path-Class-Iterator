@@ -10,11 +10,11 @@ my $no_links = setup();
 
 if ($no_links)
 {
-    plan tests => 13;
+    plan tests => 11;
 }
 else
 {
-    plan tests => 14;
+    plan tests => 12;
 }
 
 my $root    = 'test';
