@@ -1,24 +1,35 @@
 ---
-abstract: unknown
+abstract: 'walk a directory structure'
 author:
-  - unknown
+  - 'Peter Karman, <karman@cpan.org>'
 build_requires:
-  ExtUtils::MakeMaker: 0
+  ExtUtils::MakeMaker: 6.59
 configure_requires:
-  ExtUtils::MakeMaker: 0
+  ExtUtils::MakeMaker: 6.59
+distribution_type: module
 dynamic_config: 1
-generated_by: 'ExtUtils::MakeMaker version 6.62, CPAN::Meta::Converter version 2.130880'
-license: unknown
+generated_by: 'Module::Install version 1.06'
+license: http://dev.perl.org/licenses/
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
   version: 1.4
 name: Path-Class-Iterator
 no_index:
   directory:
-    - t
     - inc
+    - t
+    - test
 requires:
-  Class::Accessor::Fast: 0.01
-  Iterator: 0.01
-  Path::Class: 0.01
-version: 0.07
+  Class::Accessor::Fast: 0
+  Data::Dump: 0
+  IO::Dir: 0
+  Iterator: 0
+  Path::Class: 0
+  Test::More: 0
+  perl: 5.8.3
+resources:
+  bugtracker: http://rt.cpan.org/NoAuth/Bugs.html?Dist=Path-Class-Iterator
+  homepage: https://github.com/karpet/path-class-iterator-perl
+  license: http://dev.perl.org/licenses/
+  repository: http://github.com/karpet/path-class-iterator-perl
+version: 0.07_01
