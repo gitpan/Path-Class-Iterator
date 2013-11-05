@@ -32,4 +32,4 @@ resources:
   homepage: https://github.com/karpet/path-class-iterator-perl
   license: http://dev.perl.org/licenses/
   repository: http://github.com/karpet/path-class-iterator-perl
-version: 0.07_01
+version: 0.07_02
